@@ -1,0 +1,204 @@
+<!DOCTYPE html>
+<html lang="pt-br">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Gerar Notícia a partir de PDF</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/select2@4.0.13/dist/js/select2.min.js"></script>
+    <link href="https://cdn.jsdelivr.net/npm/select2@4.0.13/dist/css/select2.min.css" rel="stylesheet" />
+    <style>
+        .container { max-width: 900px; margin: auto; }
+        .result, .loading, .modal { display: none; }
+    </style>
+</head>
+<body class="bg-gray-100 text-gray-900">
+
+    <div class="container py-12">
+        <header class="text-center mb-8">
+            <h1 class="text-5xl font-extrabold text-blue-600">Gerar Notícia com PDF</h1>
+            <p class="text-lg text-gray-600 mt-2">Envie um PDF e aguarde enquanto a IA gera uma notícia</p>
+        </header>
+
+        <div class="bg-white shadow-lg rounded-lg p-8">
+            <form id="pdfForm" class="space-y-6">
+                <div class="flex flex-col justify-center items-center">
+                    <input type="file" id="fileInput" name="file" accept="application/pdf" required class="px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500">
+                    <p class="text-sm text-gray-500 mt-2">Envie um PDF com até <strong>3600 páginas</strong>.</p>
+                </div>
+                <div class="flex justify-center">
+                    <button type="submit" class="w-full py-3 bg-gradient-to-r from-blue-500 to-blue-600 text-white rounded-lg hover:bg-gradient-to-r hover:from-blue-600 hover:to-blue-700 transition">Gerar Notícia</button>
+                </div>
+
+            </form>
+        
+            <div class="flex justify-center mt-4">
+                <!-- Botão para abrir o modal de prompt personalizado -->
+                <button id="openPromptModal" type="submit" class="w-full py-3 bg-gradient-to-r from-indigo-500 to-indigo-600 text-white rounded-lg hover:bg-gradient-to-r hover:from-indigo-600 hover:to-indigo-700 transition">Usar prompt personalizado</button>
+            </div>
+
+                            <!-- Dropdown de empresa-e-projetos -->
+                            <div class="flex flex-col mt-6">
+                                <label for="empresaProjetos" class="text-sm text-gray-600 mb-2">Escolha as Empresas e Projetos:</label>
+                                <select id="empresaProjetos" name="empresaProjetos[]" class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500" multiple="multiple">
+                                    <!-- As opções serão carregadas aqui via AJAX -->
+                                </select>
+                                <p class="text-sm text-gray-500 mt-2">Escolha múltiplas empresas e projetos</p>
+                            </div>
+        </div>
+        
+        <!-- Modal para criar prompt personalizado -->
+        <div id="promptModal" class="modal fixed inset-0 bg-gray-800 bg-opacity-50 flex justify-center items-center">
+            <div class="bg-white p-6 rounded-lg w-96">
+                <h2 class="text-xl font-semibold mb-4">Prompt personalizado</h2>
+                <textarea id="customPrompt" class="w-full h-32 p-3 border border-gray-300 rounded-lg mb-4" placeholder="Digite o seu prompt personalizado aqui..."></textarea>
+                <div class="flex justify-between">
+                    <button id="closeModal" class="px-6 py-2 bg-gray-300 text-black rounded-lg hover:bg-gray-400 transition">Cancelar</button>
+                    <button id="savePrompt" class="px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition">Salvar Prompt</button>
+                </div>
+            </div>
+        </div>
+
+        <div id="loading" class="loading mt-6 text-center text-lg text-gray-600">
+            <p>Gerando a notícia... Por favor, aguarde.</p>
+            <div class="spinner-border animate-spin h-12 w-12 border-t-4 border-blue-600 mx-auto mt-4"></div>
+        </div>
+
+        <div id="result" class="result mt-10 bg-white shadow-lg rounded-lg p-8 space-y-6">
+            <h3 class="text-2xl font-semibold" id="newsTitle"></h3>
+            <pre id="newsText" class="whitespace-pre-wrap break-words text-gray-800"></pre>
+
+            <div class="flex space-x-4 mt-6">
+                <button class="publish-button px-6 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition w-1/2" data-draft="true">Publicar como rascunho</button>
+                <button class="publish-button px-6 py-3 bg-green-600 text-white rounded-lg hover:bg-green-700 transition w-1/2" data-draft="false">Publicar</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let customPrompt = ''; // Variável para armazenar o prompt personalizado
+        document.getElementById('promptModal').style.display = 'none';
+    
+        // Abre o modal para criar um prompt personalizado
+        document.getElementById('openPromptModal').addEventListener('click', function() {
+            document.getElementById('promptModal').style.display = 'flex';
+        });
+    
+        // Fecha o modal sem salvar o prompt
+        document.getElementById('closeModal').addEventListener('click', function() {
+            document.getElementById('promptModal').style.display = 'none';
+        });
+    
+        // Salva o prompt personalizado e fecha o modal
+        document.getElementById('savePrompt').addEventListener('click', function() {
+            customPrompt = document.getElementById('customPrompt').value.trim();
+            document.getElementById('promptModal').style.display = 'none';
+        });
+    
+        // Envia a notícia para o WordPress
+        async function publishToWordPress(title, content, status) {
+            console.log($('#empresaProjetos').val());
+            const token = 'eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJpc3MiOiJodHRwczovL3JlY3Vyc29zZXJlc2VydmFzLmNvbS5iciIsImlhdCI6MTc0MTA5NzAwNCwibmJmIjoxNzQxMDk3MDA0LCJleHAiOjE3NDE3MDE4MDQsImRhdGEiOnsidXNlciI6eyJpZCI6IjEifX19.9Lc1bvVUdq91O_6bJti_8i3WGTgs08--ZNK_Hf2I37g'; // Token JWT de autenticação para a API do WordPress
+            const postData = {
+                title: title,
+                content: content,
+                status: status,  
+                "empresa-e-projetos": $('#empresaProjetos').val(),
+                meta: {
+                    "empresa-e-projetos": $('#empresaProjetos').val()  
+                }
+            };
+    
+            const response = await fetch('https://recursosereservas.com.br/wp-json/wp/v2/artigos/', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${token}`,
+                },
+                body: JSON.stringify(postData),
+            });
+    
+            if (response.ok) {
+                alert('Postagem enviada com sucesso!');
+            } else {
+                alert('Erro ao publicar no WordPress. Tente novamente.');
+            } 
+        }
+
+        // Função para carregar empresas e projetos via API
+        async function loadEmpresaProjetos() {
+            try {
+                const response = await fetch('https://recursosereservas.com.br/wp-json/wp/v2/empresa-e-projetos/');
+                const data = await response.json();
+                
+                const select = document.getElementById('empresaProjetos');
+                data.forEach(item => {
+                    const option = document.createElement('option');
+                    option.value = item.id;
+                    option.textContent = item.name;
+                    select.appendChild(option);
+                });
+
+                // Inicializar o Select2 para permitir a pesquisa e seleção múltipla
+                $('#empresaProjetos').select2({
+                    placeholder: "Escolha as empresas e projetos",
+                    allowClear: true,
+                    width: '100%'
+                });
+
+            } catch (error) {
+                console.error('Erro ao carregar empresas e projetos:', error);
+            }
+        }
+    
+        document.getElementById('pdfForm').addEventListener('submit', async function(event) {
+            event.preventDefault();
+    
+            const formData = new FormData();
+            const fileInput = document.getElementById('fileInput');
+            formData.append('file', fileInput.files[0]);
+            formData.append('custom_prompt', customPrompt); // Envia o prompt personalizado ou vazio
+
+            document.getElementById('loading').style.display = 'block';
+            document.getElementById('result').style.display = 'none';
+    
+            try {
+                const response = await fetch('http://127.0.0.1:5000/generate_news', {
+                    method: 'POST',
+                    body: formData,
+                });
+    
+                const result = await response.json();
+                console.log("🔍 JSON Recebido:", result);
+    
+                document.getElementById('loading').style.display = 'none';
+    
+                if (response.ok) {
+                    document.getElementById('result').style.display = 'block';
+                    document.getElementById('newsTitle').textContent = result.title;
+                    document.getElementById('newsText').textContent = result.content;
+    
+                    // Adiciona event listeners para os botões de publicação
+                    document.querySelectorAll('.publish-button').forEach(button => {
+                        button.addEventListener('click', async function() {
+                            const status = this.dataset.draft === 'true' ? 'draft' : 'publish';
+                            await publishToWordPress(result.title, result.content, status);
+                        });
+                    });
+                } else {
+                    alert(result.error);
+                }
+            } catch (error) {
+                console.error("Erro na solicitação:", error);
+                alert('Erro ao processar o PDF. Tente novamente.');
+            }
+        });
+
+        // Carregar empresas e projetos ao carregar a página
+        window.addEventListener('load', function() {
+            loadEmpresaProjetos();
+        });
+    </script>
+</body>
+</html>
